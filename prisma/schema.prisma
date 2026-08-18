@@ -1,0 +1,81 @@
+// Prisma schema for the Valorant Coaching AI knowledge base.
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum KnowledgeCategory {
+  AGENT // エージェント別の立ち回り・スキル知識
+  MAP // マップ別のポジション・ロテーション知識
+  WEAPON // 武器・経済に関する知識
+  UTILITY // スキル・ユーティリティの使い方
+  DUEL // エイム・撃ち合いの知識
+  ECONOMY // 経済管理・バイフェーズ
+  POSITIONING // ポジショニング・クロスファイア
+  COMMUNICATION // コール・チームプレー
+  MENTAL // メンタル・試合運び
+  GENERAL // その他汎用知識
+}
+
+enum KnowledgeSource {
+  CHAT // 知識補強チャットから抽出
+  FORM // 管理フォームから直接入力
+  SEED // 初期シードデータ
+}
+
+model KnowledgeEntry {
+  id        String            @id @default(cuid())
+  category  KnowledgeCategory
+  title     String
+  content   String
+  tags      String            @default("") // カンマ区切りタグ (例: "jett,ascent,entry")
+  source    KnowledgeSource   @default(FORM)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([category])
+}
+
+model TrainingSession {
+  id        String    @id @default(cuid())
+  title     String    @default("知識補強セッション")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  TrainingMessage[]
+}
+
+model TrainingMessage {
+  id                String          @id @default(cuid())
+  session           TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId         String
+  role              String // "user" | "assistant"
+  content           String
+  createdAt         DateTime        @default(now())
+
+  @@index([sessionId])
+}
+
+model CoachConversation {
+  id        String            @id @default(cuid())
+  title     String            @default("コーチングチャット")
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  messages  CoachMessage[]
+}
+
+model CoachMessage {
+  id             String            @id @default(cuid())
+  conversation    CoachConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId  String
+  role            String // "user" | "assistant"
+  content         String
+  createdAt       DateTime          @default(now())
+
+  @@index([conversationId])
+}
