@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { AnthropicConfigError, COACH_MODEL, getAnthropicClient } from "@/lib/anthropic";
+import { AnthropicConfigError, COACH_MODEL, extractResponseText, getAnthropicClient } from "@/lib/anthropic";
+import { appendMessage, getOrCreateConversation, loadHistory } from "@/lib/chat";
 import { buildTrainingSystemPrompt, CATEGORY_LABELS } from "@/lib/prompts";
 import { extractKnowledgeDrafts } from "@/lib/knowledgeDrafts";
 
@@ -24,23 +25,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "message は必須です" }, { status: 400 });
   }
 
-  let session = sessionId
-    ? await prisma.trainingSession.findUnique({ where: { id: sessionId } })
-    : null;
-  if (!session) {
-    session = await prisma.trainingSession.create({ data: {} });
-  }
-
-  await prisma.trainingMessage.create({
-    data: { sessionId: session.id, role: "user", content: message.trim() },
-  });
-
-  const history = await prisma.trainingMessage.findMany({
-    where: { sessionId: session.id },
-    orderBy: { createdAt: "asc" },
-    take: 60,
-  });
-
   let client;
   try {
     client = getAnthropicClient();
@@ -51,7 +35,13 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  const existingSummary = await buildExistingSummary();
+  const conversation = await getOrCreateConversation("TRAIN", sessionId);
+  await appendMessage(conversation.id, "user", message.trim());
+
+  const [history, existingSummary] = await Promise.all([
+    loadHistory(conversation.id, 60),
+    buildExistingSummary(),
+  ]);
 
   const response = await client.messages.create({
     model: COACH_MODEL,
@@ -63,19 +53,12 @@ export async function POST(req: NextRequest) {
     })),
   });
 
-  const rawText = response.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
+  const { message: displayMessage, drafts } = extractKnowledgeDrafts(extractResponseText(response));
 
-  const { message: displayMessage, drafts } = extractKnowledgeDrafts(rawText);
-
-  await prisma.trainingMessage.create({
-    data: { sessionId: session.id, role: "assistant", content: displayMessage },
-  });
+  await appendMessage(conversation.id, "assistant", displayMessage);
 
   return NextResponse.json({
-    sessionId: session.id,
+    sessionId: conversation.id,
     reply: displayMessage,
     drafts,
   });

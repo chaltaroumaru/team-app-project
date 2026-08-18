@@ -1,14 +1,6 @@
-export type KnowledgeCategory =
-  | "AGENT"
-  | "MAP"
-  | "WEAPON"
-  | "UTILITY"
-  | "DUEL"
-  | "ECONOMY"
-  | "POSITIONING"
-  | "COMMUNICATION"
-  | "MENTAL"
-  | "GENERAL";
+import type { KNOWLEDGE_CATEGORIES } from "@/lib/prompts";
+
+export type KnowledgeCategory = (typeof KNOWLEDGE_CATEGORIES)[number];
 
 export interface KnowledgeEntryDTO {
   id: string;

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { Message } from "@anthropic-ai/sdk/resources/messages";
 
 let client: Anthropic | null = null;
 
@@ -22,3 +23,12 @@ export function getAnthropicClient(): Anthropic {
 export class AnthropicConfigError extends Error {}
 
 export const COACH_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+
+/** Concatenates the text blocks of a Messages API response into one string. */
+export function extractResponseText(response: Message): string {
+  return response.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+}

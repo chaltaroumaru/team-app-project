@@ -42,11 +42,16 @@ interface ScoredEntry {
 }
 
 const FIELD_WEIGHTS = { title: 3, tags: 2, content: 1 } as const;
+type Field = keyof typeof FIELD_WEIGHTS;
+const FIELDS = Object.keys(FIELD_WEIGHTS) as Field[];
 
 /**
- * BM25-ish scoring: builds a per-entry weighted "document" by repeating
- * title/tag tokens to boost their importance, then scores against the
- * query tokens using standard BM25 term-frequency saturation.
+ * Multi-field BM25: each field (title/tags/content) is tokenized and
+ * scored independently against its own average field length, then summed
+ * with a per-field weight. Scoring each field separately (rather than
+ * concatenating a weighted, duplicated token list into one "document")
+ * keeps title/tag importance from also distorting the length-normalization
+ * term that BM25 applies to the content field.
  */
 export function scoreEntries(
   entries: KnowledgeEntry[],
@@ -58,36 +63,50 @@ export function scoreEntries(
   if (queryTokens.length === 0) return [];
 
   const docs = entries.map((entry) => {
-    const tokens = [
-      ...repeat(tokenize(entry.title), FIELD_WEIGHTS.title),
-      ...repeat(tokenize(entry.tags), FIELD_WEIGHTS.tags),
-      ...repeat(tokenize(entry.content), FIELD_WEIGHTS.content),
-    ];
-    const freq = new Map<string, number>();
-    for (const t of tokens) freq.set(t, (freq.get(t) ?? 0) + 1);
-    return { entry, tokens, freq };
+    const fieldTokens = {
+      title: tokenize(entry.title),
+      tags: tokenize(entry.tags),
+      content: tokenize(entry.content),
+    } satisfies Record<Field, string[]>;
+
+    const fieldFreq = {} as Record<Field, Map<string, number>>;
+    const presence = new Set<string>();
+    for (const field of FIELDS) {
+      const freq = new Map<string, number>();
+      for (const t of fieldTokens[field]) {
+        freq.set(t, (freq.get(t) ?? 0) + 1);
+        presence.add(t);
+      }
+      fieldFreq[field] = freq;
+    }
+
+    return { entry, fieldTokens, fieldFreq, presence };
   });
 
-  const avgLen =
-    docs.reduce((sum, d) => sum + d.tokens.length, 0) / (docs.length || 1);
-
-  const df = new Map<string, number>();
-  for (const token of queryTokens) {
-    let count = 0;
-    for (const d of docs) if (d.freq.has(token)) count++;
-    df.set(token, count);
+  const avgLen = {} as Record<Field, number>;
+  for (const field of FIELDS) {
+    avgLen[field] = docs.reduce((sum, d) => sum + d.fieldTokens[field].length, 0) / (docs.length || 1);
   }
 
   const N = docs.length;
+  const df = new Map<string, number>();
+  for (const token of queryTokens) {
+    df.set(token, docs.filter((d) => d.presence.has(token)).length);
+  }
+
   const results: ScoredEntry[] = docs.map((d) => {
     let score = 0;
     for (const token of queryTokens) {
-      const f = d.freq.get(token) ?? 0;
-      if (f === 0) continue;
       const n = df.get(token) ?? 0;
+      if (n === 0) continue;
       const idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
-      const denom = f + k1 * (1 - b + (b * d.tokens.length) / (avgLen || 1));
-      score += idf * ((f * (k1 + 1)) / (denom || 1));
+      for (const field of FIELDS) {
+        const f = d.fieldFreq[field].get(token) ?? 0;
+        if (f === 0) continue;
+        const len = d.fieldTokens[field].length;
+        const denom = f + k1 * (1 - b + (b * len) / (avgLen[field] || 1));
+        score += FIELD_WEIGHTS[field] * idf * ((f * (k1 + 1)) / (denom || 1));
+      }
     }
     return { entry: d.entry, score };
   });
@@ -95,12 +114,6 @@ export function scoreEntries(
   return results
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score);
-}
-
-function repeat<T>(arr: T[], times: number): T[] {
-  const out: T[] = [];
-  for (let i = 0; i < times; i++) out.push(...arr);
-  return out;
 }
 
 export async function retrieveRelevantKnowledge(

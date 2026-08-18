@@ -65,21 +65,21 @@ src/
       coach/chat/             # コーチングチャットAPI(RAG + CORS対応)
   lib/
     db.ts                 # Prismaクライアント(better-sqlite3アダプタ)
+    chat.ts                # 会話の作成・履歴取得(train/coach 両チャットAPI共通)
     retrieval.ts           # BM25風の軽量ナレッジ検索
     anthropic.ts            # Anthropicクライアント
     prompts.ts               # コーチ人格 / 知識抽出インタビュアーのシステムプロンプト
     knowledgeDrafts.ts        # チャット応答からの知識案JSON抽出
     cors.ts                    # /api/coach/chat のCORS制御
 prisma/
-  schema.prisma           # KnowledgeEntry / TrainingSession / CoachConversation 等
+  schema.prisma           # KnowledgeEntry / Conversation / Message
   seed.ts                  # 基礎知識の初期シード
 ```
 
 ## データモデル
 
 - `KnowledgeEntry`: カテゴリ(AGENT/MAP/WEAPON/UTILITY/DUEL/ECONOMY/POSITIONING/COMMUNICATION/MENTAL/GENERAL)、タイトル、本文、タグ、由来(CHAT/FORM/SEED)を持つ知識の最小単位。
-- `TrainingSession` / `TrainingMessage`: 「知識を教える」チャットの会話履歴。
-- `CoachConversation` / `CoachMessage`: コーチングチャットの会話履歴。
+- `Conversation` / `Message`: チャットの会話履歴。`kind`(TRAIN/COACH)で「知識を教える」チャットと「コーチに質問する」チャットを区別する共通モデル。
 
 ## 外部サイトへの組み込み方
 
@@ -106,4 +106,5 @@ const { reply, conversationId, usedKnowledge } = await res.json();
 - 検索はBM25(+日本語Bigram)によるキーワードマッチで、意味的な類似検索(embeddings)ではありません。知識量が増えたら実ベクトル検索への切り替えを検討してください。
 - 認証機構がないため、複数人でナレッジベースを編集する運用には認可の仕組みの追加が必要です。
 - 「知識を教える」チャットのセッション一覧・再開UIは未実装です(DBには保存されているため、APIレベルでは対応可能)。
+- 知識案の抽出はチャット応答末尾のJSONコードブロックをテキスト解析する方式です(`src/lib/knowledgeDrafts.ts`)。Anthropic APIのツール呼び出し(tool use)で構造化出力を強制する方式に置き換えると、フォーマット崩れで案が消える失敗モードをなくせます。
 - `npm audit` で prisma の開発時依存(`deepmerge-ts`)に関する high severity の指摘が出ますが、実行時のAPIサーフェスには影響しない設定マージ処理の依存であり、Prisma 7系を維持する限り現状は許容しています。Prisma 6系へのダウングレードで解消できますが、本プロジェクトの `prisma-client` ジェネレータ構文は7系前提のため未対応です。

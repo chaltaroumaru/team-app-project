@@ -42,40 +42,32 @@ model KnowledgeEntry {
   @@index([category])
 }
 
-model TrainingSession {
-  id        String    @id @default(cuid())
-  title     String    @default("知識補強セッション")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  messages  TrainingMessage[]
+// TrainPage (知識を教える) と CoachPage (コーチに質問する) はどちらも
+// 「セッション/会話 + メッセージ履歴」という同じ形を必要とするため、
+// kind で区別する1組のモデルに統合している(旧: TrainingSession/TrainingMessage
+// と CoachConversation/CoachMessage という構造が同一の2モデル対を個別に持っていた)。
+enum ConversationKind {
+  TRAIN
+  COACH
 }
 
-model TrainingMessage {
-  id                String          @id @default(cuid())
-  session           TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  sessionId         String
-  role              String // "user" | "assistant"
-  content           String
-  createdAt         DateTime        @default(now())
+model Conversation {
+  id        String           @id @default(cuid())
+  kind      ConversationKind
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  messages  Message[]
 
-  @@index([sessionId])
+  @@index([kind])
 }
 
-model CoachConversation {
-  id        String            @id @default(cuid())
-  title     String            @default("コーチングチャット")
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  messages  CoachMessage[]
-}
-
-model CoachMessage {
-  id             String            @id @default(cuid())
-  conversation    CoachConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  conversationId  String
-  role            String // "user" | "assistant"
-  content         String
-  createdAt       DateTime          @default(now())
+model Message {
+  id             String       @id @default(cuid())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  role           String // "user" | "assistant"
+  content        String
+  createdAt      DateTime     @default(now())
 
   @@index([conversationId])
 }

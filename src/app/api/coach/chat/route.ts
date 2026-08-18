@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { AnthropicConfigError, COACH_MODEL, getAnthropicClient } from "@/lib/anthropic";
+import { AnthropicConfigError, COACH_MODEL, extractResponseText, getAnthropicClient } from "@/lib/anthropic";
+import { appendMessage, getOrCreateConversation, loadHistory } from "@/lib/chat";
 import { buildCoachSystemPrompt, formatKnowledgeContext } from "@/lib/prompts";
 import { retrieveRelevantKnowledge } from "@/lib/retrieval";
 import { corsHeaders } from "@/lib/cors";
@@ -20,23 +20,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "message は必須です" }, { status: 400, headers });
   }
 
-  let conversation = conversationId
-    ? await prisma.coachConversation.findUnique({ where: { id: conversationId } })
-    : null;
-  if (!conversation) {
-    conversation = await prisma.coachConversation.create({ data: {} });
-  }
-
-  await prisma.coachMessage.create({
-    data: { conversationId: conversation.id, role: "user", content: message.trim() },
-  });
-
-  const history = await prisma.coachMessage.findMany({
-    where: { conversationId: conversation.id },
-    orderBy: { createdAt: "asc" },
-    take: 40,
-  });
-
   let client;
   try {
     client = getAnthropicClient();
@@ -47,28 +30,27 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  const relevant = await retrieveRelevantKnowledge(message.trim());
-  const systemPrompt = buildCoachSystemPrompt(formatKnowledgeContext(relevant));
+  const conversation = await getOrCreateConversation("COACH", conversationId);
+  await appendMessage(conversation.id, "user", message.trim());
+
+  const [history, relevant] = await Promise.all([
+    loadHistory(conversation.id, 40),
+    retrieveRelevantKnowledge(message.trim()),
+  ]);
 
   const response = await client.messages.create({
     model: COACH_MODEL,
     max_tokens: 1200,
-    system: systemPrompt,
+    system: buildCoachSystemPrompt(formatKnowledgeContext(relevant)),
     messages: history.map((m) => ({
       role: m.role === "assistant" ? "assistant" : "user",
       content: m.content,
     })),
   });
 
-  const reply = response.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
+  const reply = extractResponseText(response);
 
-  await prisma.coachMessage.create({
-    data: { conversationId: conversation.id, role: "assistant", content: reply },
-  });
+  await appendMessage(conversation.id, "assistant", reply);
 
   return NextResponse.json(
     {
