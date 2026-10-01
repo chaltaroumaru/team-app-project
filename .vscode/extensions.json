@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "expo.vscode-expo-tools",
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "eamodio.gitlens",
+    "github.vscode-pull-request-github",
+    "MS-CEINTL.vscode-language-pack-ja"
+  ]
+}
